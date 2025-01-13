@@ -3911,6 +3911,8 @@ void ImFontAtlasBuildInit(ImFontAtlas* atlas)
     if (builder_is_new)
         builder = atlas->Builder = IM_NEW(ImFontAtlasBuilder)();
 
+    ImFontAtlasBuildUpdateRendererHasTexUpdatesFromContext(atlas);
+
     ImFontAtlasPackInit(atlas);
 
     // Add required texture data
