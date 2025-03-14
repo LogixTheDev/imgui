@@ -11,4 +11,4 @@ set(IMGUI_SOURCES src/imgui.cpp
 
 add_library(ImGui STATIC ${IMGUI_SOURCES})
 
-target_include_directories(ImGui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(ImGui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/include/backends ${CMAKE_SOURCE_DIR}/Libraries/GLFW/include)
