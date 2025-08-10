@@ -31,9 +31,9 @@ Index of this file:
 #define IMGUI_DEFINE_MATH_OPERATORS
 #endif
 
-#include "imgui.h"
+#include "../include/imgui/imgui.h"
 #ifndef IMGUI_DISABLE
-#include "imgui_internal.h"
+#include "../include/imgui/imgui_internal.h"
 #ifdef IMGUI_ENABLE_FREETYPE
 #include "misc/freetype/imgui_freetype.h"
 #endif
@@ -152,7 +152,7 @@ namespace IMGUI_STB_NAMESPACE
 #ifdef IMGUI_STB_TRUETYPE_FILENAME
 #include IMGUI_STB_TRUETYPE_FILENAME
 #else
-#include "imstb_truetype.h"
+#include "../include/imgui/imstb_truetype.h"
 #endif
 #endif
 #endif // IMGUI_ENABLE_STB_TRUETYPE
