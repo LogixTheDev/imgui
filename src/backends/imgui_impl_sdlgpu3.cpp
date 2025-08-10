@@ -24,10 +24,10 @@
 //  2025-01-16: Renamed ImGui_ImplSDLGPU3_InitInfo::GpuDevice to Device.
 //  2025-01-09: SDL_GPU: Added the SDL_GPU3 backend.
 
-#include "imgui.h"
+#include "../../include/imgui/imgui.h"
 #ifndef IMGUI_DISABLE
-#include "imgui_impl_sdlgpu3.h"
-#include "imgui_impl_sdlgpu3_shaders.h"
+#include <imgui/backends/imgui_impl_sdlgpu3.h>
+#include <imgui/backends/imgui_impl_sdlgpu3_shaders.h>
 
 // SDL_GPU Data
 

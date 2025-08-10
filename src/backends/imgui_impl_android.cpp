@@ -29,9 +29,9 @@
 //  2022-01-10: Inputs: calling new io.AddKeyEvent(), io.AddKeyModsEvent() + io.SetKeyEventNativeData() API (1.87+). Support for full ImGuiKey range.
 //  2021-03-04: Initial version.
 
-#include "imgui.h"
+#include "../../include/imgui/imgui.h"
 #ifndef IMGUI_DISABLE
-#include "imgui_impl_android.h"
+#include <imgui/backends/imgui_impl_android.h>
 #include <time.h>
 #include <android/native_window.h>
 #include <android/input.h>
