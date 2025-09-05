@@ -1772,8 +1772,14 @@ bool ImGui::SplitterBehavior(const ImRect& bb, ImGuiID id, ImGuiAxis axis, float
     // Render at new position
     if (bg_col & IM_COL32_A_MASK)
         window->DrawList->AddRectFilled(bb_render.Min, bb_render.Max, bg_col, 0.0f);
-    const ImU32 col = GetColorU32(held ? ImGuiCol_SeparatorActive : (hovered && g.HoveredIdTimer >= hover_visibility_delay) ? ImGuiCol_SeparatorHovered : ImGuiCol_Separator);
-    window->DrawList->AddRectFilled(bb_render.Min, bb_render.Max, col, 0.0f);
+
+    const bool show_hover = hovered && g.HoveredIdTimer >= hover_visibility_delay;
+    if (!(held || show_hover)) {
+        if (axis == ImGuiAxis_X) bb_render.Max.x = bb_render.Min.x + 2.0f;
+        else                     bb_render.Max.y = bb_render.Min.y + 2.0f;
+    }
+    const ImU32 col = GetColorU32(held ? ImGuiCol_ResizeGripActive : show_hover ? ImGuiCol_ResizeGripHovered : ImGuiCol_ResizeGrip);
+    window->DrawList->AddRectFilled(bb_render.Min, bb_render.Max, col);
 
     return held;
 }
@@ -10100,7 +10106,78 @@ void    ImGui::TabItemSpacing(const char* str_id, ImGuiTabItemFlags flags, float
     TabItemEx(tab_bar, str_id, NULL, flags | ImGuiTabItemFlags_Button | ImGuiTabItemFlags_NoReorder | ImGuiTabItemFlags_Invisible, NULL);
 }
 
-bool    ImGui::TabItemEx(ImGuiTabBar* tab_bar, const char* label, bool* p_open, ImGuiTabItemFlags flags, ImGuiWindow* docked_window)
+struct RenderTabContext
+{
+    ImGuiID       ID = 0;
+    const char*   Label;
+    bool          Held;
+    bool          Hovered;
+    bool          TabContentsVisible;
+    bool          TabBarFocused;
+    bool          IsTabButton;
+    bool*         Open;
+    bool          TabJustUnsaved;
+    int           Flags;
+    ImGuiWindow*  Window;
+    ImRect        BB;
+    ImGuiTabBar*  TabBar;
+    ImGuiTabItem* Tab;
+    ImGuiWindow*  DockedWindow;
+};
+
+void RenderTab(RenderTabContext& context)
+{
+    ImGuiContext& g = *GImGui;
+    const ImGuiStyle& style = g.Style;
+
+    ImDrawList* displayDrawList = context.Window->DrawList;
+    const ImU32 tabColour = ImGui::GetColorU32((context.Held || context.Hovered) ? ImGuiCol_TabHovered : context.TabContentsVisible ? (context.TabBarFocused ? ImGuiCol_TabSelected : ImGuiCol_TabDimmedSelected) : (context.TabBarFocused ? ImGuiCol_Tab : ImGuiCol_TabDimmed));
+    ImGui::TabItemBackground(displayDrawList, context.BB, context.Flags, tabColour);
+    if (context.TabContentsVisible && (context.TabBar->Flags & ImGuiTabBarFlags_DrawSelectedOverline) && style.TabBarOverlineSize > 0.0f)
+    {
+        const ImVec2 tl = context.BB.GetTL() + ImVec2(0, 1.0f * g.CurrentDpiScale);
+        const ImVec2 tr = context.BB.GetTR() + ImVec2(0, 1.0f * g.CurrentDpiScale);
+        const ImU32 overlineColour = ImGui::GetColorU32(context.TabBarFocused ? ImGuiCol_TabSelectedOverline : ImGuiCol_TabDimmedSelectedOverline);
+        if (style.TabRounding > 0.0f)
+        {
+            const float rounding = style.TabRounding;
+            displayDrawList->PathArcToFast(tl + ImVec2(+rounding, +rounding), rounding, 7, 9);
+            displayDrawList->PathArcToFast(tr + ImVec2(-rounding, +rounding), rounding, 9, 11);
+            displayDrawList->PathStroke(overlineColour, 0, style.TabBarOverlineSize);
+        }
+        else
+        {
+            displayDrawList->AddLine(tl - ImVec2(0.5f, 0.5f), tr - ImVec2(0.5f, 0.5f), overlineColour, style.TabBarOverlineSize);
+        }
+    }
+    ImGui::RenderNavCursor(context.BB, context.ID);
+
+    const bool hoveredUnblocked = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+    if (context.TabBar->SelectedTabId != context.Tab->ID && hoveredUnblocked && (ImGui::IsMouseClicked(1) || ImGui::IsMouseReleased(1)) && !context.IsTabButton)
+        ImGui::TabBarQueueFocus(context.TabBar, context.Tab);
+
+    if (context.TabBar->Flags & ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)
+        context.Flags |= ImGuiTabItemFlags_NoCloseWithMiddleMouseButton;
+
+    const ImGuiID closeButtonID = context.Open ? ImGui::GetIDWithSeed("#CLOSE", nullptr, context.DockedWindow ? context.DockedWindow->ID : context.ID) : 0;
+    bool          justClosed;
+    bool          textClipped;
+    ImGui::TabItemLabelAndCloseButton(displayDrawList, context.BB, context.TabJustUnsaved ? (context.Flags & ~ImGuiTabItemFlags_UnsavedDocument) : context.Flags, context.TabBar->FramePadding, context.Label, context.ID, closeButtonID, context.TabContentsVisible, &justClosed, &textClipped);
+    if (justClosed && context.Open != nullptr)
+    {
+        *context.Open = false;
+        ImGui::TabBarCloseTab(context.TabBar, context.Tab);
+    }
+
+    if (context.DockedWindow && (context.Hovered || g.HoveredId == closeButtonID))
+        g.LastItemData.StatusFlags |= ImGuiItemStatusFlags_HoveredWindow;
+
+    if (textClipped && g.HoveredId == context.ID && !context.Held)
+        if (!(context.TabBar->Flags & ImGuiTabBarFlags_NoTooltip) && !(context.Tab->Flags & ImGuiTabItemFlags_NoTooltip))
+            ImGui::SetItemTooltip("%.*s", static_cast<int>(ImGui::FindRenderedTextEnd(context.Label) - context.Label), context.Label);
+}
+
+bool ImGui::TabItemEx(ImGuiTabBar* tab_bar, const char* label, bool* p_open, ImGuiTabItemFlags flags, ImGuiWindow* docked_window)
 {
     // Layout whole tab bar if not already done
     ImGuiContext& g = *GImGui;
@@ -10339,61 +10416,24 @@ bool    ImGui::TabItemEx(ImGuiTabBar* tab_bar, const char* label, bool* p_open, 
     const bool is_visible = (g.LastItemData.StatusFlags & ImGuiItemStatusFlags_Visible) && !(flags & ImGuiTabItemFlags_Invisible);
     if (is_visible)
     {
-        ImDrawList* display_draw_list = window->DrawList;
-        const ImU32 tab_col = GetColorU32((held || hovered) ? ImGuiCol_TabHovered : tab_contents_visible ? (tab_bar_focused ? ImGuiCol_TabSelected : ImGuiCol_TabDimmedSelected) : (tab_bar_focused ? ImGuiCol_Tab : ImGuiCol_TabDimmed));
-        TabItemBackground(display_draw_list, bb, flags, tab_col);
-        if (tab_contents_visible && (tab_bar->Flags & ImGuiTabBarFlags_DrawSelectedOverline) && style.TabBarOverlineSize > 0.0f)
-        {
-            // Might be moved to TabItemBackground() ?
-            ImVec2 tl = bb.GetTL() + ImVec2(0, 1.0f * g.CurrentDpiScale);
-            ImVec2 tr = bb.GetTR() + ImVec2(0, 1.0f * g.CurrentDpiScale);
-            ImU32 overline_col = GetColorU32(tab_bar_focused ? ImGuiCol_TabSelectedOverline : ImGuiCol_TabDimmedSelectedOverline);
-            if (style.TabRounding > 0.0f)
-            {
-                float rounding = style.TabRounding;
-                display_draw_list->PathArcToFast(tl + ImVec2(+rounding, +rounding), rounding, 7, 9);
-                display_draw_list->PathArcToFast(tr + ImVec2(-rounding, +rounding), rounding, 9, 11);
-                display_draw_list->PathStroke(overline_col, 0, style.TabBarOverlineSize);
-            }
-            else
-            {
-                display_draw_list->AddLine(tl - ImVec2(0.5f, 0.5f), tr - ImVec2(0.5f, 0.5f), overline_col, style.TabBarOverlineSize);
-            }
-        }
-        RenderNavCursor(bb, id);
+        RenderTabContext rtc;
+        rtc.ID           = id;
+        rtc.Label        = label;
+        rtc.Held         = held;
+        rtc.Hovered      = hovered;
+        rtc.TabContentsVisible = tab_contents_visible;
+        rtc.TabBarFocused = tab_bar_focused;
+        rtc.IsTabButton = is_tab_button;
+        rtc.Open = p_open;
+        rtc.TabJustUnsaved = tab_just_unsaved;
+        rtc.Flags = flags;
+        rtc.Window = window;
+        rtc.BB = bb;
+        rtc.TabBar = tab_bar;
+        rtc.Tab = tab;
+        rtc.DockedWindow = docked_window;
 
-        // Select with right mouse button. This is so the common idiom for context menu automatically highlight the current widget.
-        const bool hovered_unblocked = IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
-        if (tab_bar->SelectedTabId != tab->ID && hovered_unblocked && (IsMouseClicked(1) || IsMouseReleased(1)) && !is_tab_button)
-            TabBarQueueFocus(tab_bar, tab);
-
-        if (tab_bar->Flags & ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)
-            flags |= ImGuiTabItemFlags_NoCloseWithMiddleMouseButton;
-
-        // Render tab label, process close button
-        const ImGuiID close_button_id = p_open ? GetIDWithSeed("#CLOSE", NULL, docked_window ? docked_window->ID : id) : 0;
-        bool just_closed;
-        bool text_clipped;
-        TabItemLabelAndCloseButton(display_draw_list, bb, tab_just_unsaved ? (flags & ~ImGuiTabItemFlags_UnsavedDocument) : flags, tab_bar->FramePadding, label, id, close_button_id, tab_contents_visible, &just_closed, &text_clipped);
-        if (just_closed && p_open != NULL)
-        {
-            *p_open = false;
-            TabBarCloseTab(tab_bar, tab);
-        }
-
-        // Forward Hovered state so IsItemHovered() after Begin() can work (even though we are technically hovering our parent)
-        // That state is copied to window->DockTabItemStatusFlags by our caller.
-        if (docked_window && (hovered || g.HoveredId == close_button_id))
-            g.LastItemData.StatusFlags |= ImGuiItemStatusFlags_HoveredWindow;
-
-        // Tooltip
-        // (Won't work over the close button because ItemOverlap systems messes up with HoveredIdTimer-> seems ok)
-        // (We test IsItemHovered() to discard e.g. when another item is active or drag and drop over the tab bar, which g.HoveredId ignores)
-        // FIXME: This is a mess.
-        // FIXME: We may want disabled tab to still display the tooltip?
-        if (text_clipped && g.HoveredId == id && !held)
-            if (!(tab_bar->Flags & ImGuiTabBarFlags_NoTooltip) && !(tab->Flags & ImGuiTabItemFlags_NoTooltip))
-                SetItemTooltip("%.*s", (int)(FindRenderedTextEnd(label) - label), label);
+        RenderTab(rtc);
     }
 
     // Restore main window position so user can draw there
